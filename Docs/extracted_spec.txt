@@ -1,0 +1,1009 @@
+KWIATY
+Especificación de arquitectura, requisitos y experiencia de usuario
+Asistente local-first para uso diario en CachyOS
+Estado del documentoConsolidación de las decisiones aprobadas durante la fase de brainstorming con Superpowers. Este archivo define el alcance del MVP, la arquitectura base, el modelo de seguridad, los flujos, la memoria, las automatizaciones y las interfaces. No es todavía un plan de implementación.
+Versión de diseño: v1 / MVPFecha: 14 de septiembre de 2026
+Contenido
+1.  Visión y alcance
+2.  Decisiones aprobadas
+3.  Principios arquitectónicos
+4.  Arquitectura del sistema
+5.  Flujo del software
+6.  Model Router y Context Manager
+7.  Sistema de herramientas
+8.  Seguridad y permisos
+9.  Memoria persistente
+10.  Automation Engine y proactividad
+11.  Interfaz flotante y CLI
+12.  Requisitos funcionales del MVP
+13.  Requisitos no funcionales
+14.  Escenarios de aceptación
+15.  Fuera de alcance y evolución futura
+16.  Decisiones pendientes
+17.  Resumen ejecutivo de arquitectura
+1. Visión y alcance
+Kwiaty será un asistente personal híbrido para uso diario, orientado principalmente a CachyOS y al entorno técnico del usuario. Combinará conversación, control del escritorio, diagnóstico del sistema, ayuda de desarrollo, automatizaciones y memoria local controlada.
+Definición del MVPKwiaty v1 será un asistente local-first para CachyOS capaz de conversar, diagnosticar el sistema, usar herramientas controladas, ejecutar acciones según niveles de riesgo, mantener memoria básica y realizar automatizaciones simples desde una ventana flotante o una CLI.
+1.1 Objetivos
+Reducir fricción en tareas cotidianas del escritorio sin depender permanentemente de Internet.
+Permitir diagnóstico real del sistema usando datos y herramientas, no solo respuestas genéricas del LLM.
+Mantener el control humano sobre acciones sensibles mediante políticas de riesgo independientes del modelo.
+Conservar contexto útil y memoria básica sin almacenar indiscriminadamente conversaciones, capturas o secretos.
+Servir como asistente técnico para Linux, Git, Docker y programación sin intentar reemplazar un IDE completo.
+Permanecer ligero en reposo y cargar recursos pesados solo cuando la tarea lo requiera.
+1.2 Capacidades seleccionadas para v1
+Código
+Capacidad
+Estado
+A
+Conversación y preguntas generales
+Incluida
+B
+Control de apps y sistema básico
+Incluida
+D
+Ejecutar y explicar comandos de terminal
+Incluida
+E
+Diagnóstico de CPU, RAM, procesos, logs y servicios
+Incluida
+F
+Asistencia técnica: programación, Git, Docker, Linux
+Incluida
+G
+Memoria de preferencias y proyectos
+Incluida
+H
+Automatizaciones de varias acciones
+Incluida
+J
+Análisis de pantalla/ventana bajo demanda
+Incluida
+K
+Búsqueda de información actual en Internet
+Incluida
+C
+Administrador directo de archivos
+No como capacidad principal
+I
+Recordatorios, tareas y notas
+Fuera del MVP
+L
+Integraciones con servicios externos
+Fuera del MVP
+2. Decisiones aprobadas
+Elección
+Área
+Decisión consolidada
+D
+Producto híbrido
+Escritorio + asistente personal + asistente técnico.
+D
+Interacción
+Texto primero; arquitectura preparada para voz futura.
+C
+Autonomía
+Permisos por nivel: acciones seguras automáticas, sensibles confirmadas.
+B
+IA
+Local primero mediante Ollama; nube como fallback controlado.
+B + D
+Memoria
+Memoria básica, categorizada y administrable por el usuario.
+D
+Acciones
+Sistema + terminal + automatizaciones encadenadas.
+D
+Interfaz
+Ventana flotante principal + CLI secundaria.
+C
+Proactividad
+Proactividad controlada con sugerencias, no ejecución sensible autónoma.
+C
+Contexto visual
+Análisis avanzado de pantalla solo bajo demanda.
+C
+Política cloud
+Políticas por categorías; datos sensibles no salen automáticamente.
+C
+Archivos
+Lectura/búsqueda permitida; escritura/modificación bajo confirmación.
+C
+Tareas complejas
+Ejecución guiada por riesgo: acciones seguras automáticas, sensibles confirmadas.
+B
+Recursos
+Objetivo de menos de 500 MB de RAM en reposo para Kwiaty, excluyendo Ollama/modelo.
+D
+Latencia
+Variable por tarea: acciones locales rápidas; LLM y análisis pueden tardar más.
+B
+Offline
+Modo offline completo para conversación local, herramientas y automatizaciones.
+B
+Identidad
+Usuario único con protección/autenticación adicional en acciones sensibles.
+D
+Portabilidad
+CachyOS primero; Core portable mediante adaptadores de plataforma.
+2
+Arquitectura
+Núcleo modular con herramientas. Se descartan monolito y multiagente en v1.
+3. Principios arquitectónicos
+ID
+Principio
+Implicación
+P-01
+Kwiaty ≠ Qwen
+El modelo es un proveedor intercambiable. El producto es el sistema completo.
+P-02
+LLM sin acceso directo al SO
+El modelo solicita capacidades; no ejecuta directamente shell, sudo ni systemd.
+P-03
+Menor inteligencia necesaria
+Regla directa → herramienta → modelo local → web → cloud.
+P-04
+Seguridad independiente del LLM
+El Permission Manager tiene la última palabra sobre cualquier acción.
+P-05
+Herramientas estructuradas
+Las tools devuelven hechos estructurados; el LLM interpreta y explica.
+P-06
+Contexto mínimo
+Solo se agrega a cada petición la información realmente relevante.
+P-07
+Local-first
+El funcionamiento central debe sobrevivir sin Internet.
+P-08
+Verificar, no asumir
+Acciones relevantes deben comprobar su resultado antes de declararse exitosas.
+P-09
+YAGNI
+No se introduce multiagente, vector DB, plugins externos o voz permanente hasta necesitarlo.
+P-10
+Auditable
+Las acciones reales del asistente deben poder revisarse después.
+4. Arquitectura del sistema
+La arquitectura elegida es un núcleo modular con herramientas y un adaptador específico de CachyOS. El Core concentra la orquestación y las políticas; las interfaces y proveedores se conectan a él mediante contratos definidos.
+Figura 1. Arquitectura modular aprobada para Kwiaty v1.
+4.1 Módulos y responsabilidades
+Módulo
+Responsabilidad
+Interface Layer
+Recibe instrucciones desde la ventana flotante o CLI y presenta respuestas, permisos y estados.
+Orchestrator
+Coordina la petición completa, decide ruta, maneja ciclos de herramientas, errores y finalización.
+Intent Router
+Distingue órdenes deterministas de solicitudes que requieren herramienta o razonamiento.
+Context Manager
+Compone contexto mínimo a partir de sesión, memoria relevante, estado dinámico y resultados.
+Model Router
+Selecciona proveedor/modelo sin acoplar el resto del sistema a Qwen u otro LLM.
+Permission Manager
+Clasifica/aplica R0, R1, R2, R3 y RX. Sus políticas son independientes del LLM.
+Tool Manager / Registry
+Registra tools, valida parámetros, compatibilidad, disponibilidad y metadatos.
+Automation Engine
+Ejecuta secuencias previamente definidas, con estado, cancelación, permisos y verificación.
+Proactive Monitor
+Observa métricas habilitadas de forma ligera y genera avisos/sugerencias con anti-spam.
+Memory Manager
+Administra preferencias, proyectos, alias y hechos explícitos en almacenamiento local.
+Audit Logger
+Registra acciones, autorización, éxito/fallo y metadatos sin almacenar secretos.
+Platform Adapter
+Traduce capacidades genéricas a CachyOS/KDE/systemd/pacman, aislando dependencias del SO.
+AI Providers
+Ollama como proveedor local principal y proveedores cloud opcionales bajo política.
+5. Flujo del software
+Figura 2. Flujo general de procesamiento de una petición.
+5.1 Flujo base
+1.  La interfaz entrega la petición al Orchestrator.
+2.  El Intent Router decide si existe una ruta determinista o si se requiere razonamiento.
+3.  El Context Manager reúne solo el contexto necesario.
+4.  Si hace falta IA, el Model Router utiliza Ollama por defecto y solo considera cloud según política.
+5.  Si el modelo solicita una capacidad, el Tool Manager valida herramienta y parámetros.
+6.  El Permission Manager determina si la acción se ejecuta, se confirma, se autentica o se rechaza.
+7.  La tool se ejecuta a través del Platform Adapter cuando corresponde.
+8.  Kwiaty verifica el resultado de acciones relevantes.
+9.  El Orchestrator construye la respuesta final y el Audit Logger registra la actividad.
+5.2 Rutas de procesamiento
+Ruta
+Cuándo se usa
+Ejemplo
+Rápida
+Acciones simples y deterministas; evita cargar LLM innecesariamente.
+“Abre Firefox”, “muéstrame RAM”.
+Inteligente local
+Interpretación, diagnóstico, conversación o planificación mediante Ollama.
+“¿Por qué la laptop está lenta?”
+Híbrida
+Se requiere información actual o capacidad externa bajo política.
+“Busca si este error corresponde a un bug reciente”.
+5.3 Ciclo de herramientas
+Usuario: “Averigua por qué Docker no inicia”↓get_service_status("docker")↓get_service_logs("docker")↓read_file(configuración relevante)↓LLM propone corrección↓Permission Manager → R2↓Usuario confirma↓Aplicar cambio → verificar Docker → responder
+El Orchestrator deberá imponer límites de pasos, tiempo, llamadas al modelo y herramientas para impedir ciclos infinitos. Los valores exactos quedan para la fase de implementación.
+6. Model Router y Context Manager
+6.1 Model Router
+Ollama será el proveedor principal en v1.
+El resto del Core no conocerá directamente a Qwen; pedirá una operación genérica al Model Router.
+Cloud funcionará como fallback opcional y condicionado por políticas de privacidad.
+La arquitectura quedará preparada para perfiles FAST/BALANCED/DEEP/VISION, pero v1 solo necesita LOCAL/CLOUD.
+El fallo de Ollama no deberá deshabilitar las funciones deterministas del sistema.
+6.2 Context Manager
+Separa contexto de sesión, memoria relevante, contexto dinámico del sistema y resultados de tools.
+No inyecta automáticamente toda la memoria ni todo el historial conversacional.
+El estado dinámico (CPU, batería, app activa, red) se consulta cuando hace falta y no se convierte en memoria.
+Las capturas de pantalla se usan solo bajo demanda y no se almacenan permanentemente por defecto.
+Regla de privacidad cloudAntes de utilizar un proveedor externo, Kwiaty deberá aplicar la política de datos y sanitizar secretos como contraseñas, API keys, tokens, cookies, claves SSH y contenidos sensibles de .env.
+7. Sistema de herramientas
+Qwen u otro LLM no recibirá una terminal irrestricta. Dispondrá de capacidades declaradas y validables. Cada tool define metadatos que el Core puede comprobar sin confiar en el modelo.
+7.1 Contrato mínimo de una herramienta
+namedomaindescriptionparameters/schemarisk_levelrequires_networkrequires_privilegesoffline_availablesupported_platforms
+7.2 Dominios de tools
+Dominio
+Responsabilidad
+System
+Abrir/cerrar apps, procesos, CPU/RAM/disco/batería, estado y control de servicios.
+Diagnostics
+Resumen del sistema, errores recientes, logs, procesos de alto consumo, salud del sistema.
+Terminal
+Operaciones estructuradas y un executor controlado con análisis especial de comandos.
+Development
+Git status/diff/log, tests, estructura de proyecto, Docker status/containers/logs.
+Screen
+Ventana activa, captura bajo demanda y análisis visual.
+Web
+Búsqueda, apertura/extracción de contenido y tratamiento de páginas como datos no confiables.
+7.3 Shell Executor controlado
+La flexibilidad de terminal se conserva mediante un executor especial, pero antes de ejecutar un comando deberá separar ejecutable y argumentos, detectar pipes/redirecciones/subshell, identificar privilegios y calcular riesgo. Un comando generado libremente por el modelo nunca se ejecuta sin pasar por esta capa.
+ls -lah                 → lectura / bajo riesgosystemctl restart docker → modificación / confirmarsudo pacman -S ...       → acción crítica / autenticaciónrm -rf /                 → RX / rechazar
+7.4 Resultados de tools
+Las herramientas devuelven hechos, no conclusiones conversacionales. El formato común deberá incluir éxito, datos, error y metadatos. El LLM será responsable de interpretar esos datos y explicarlos al usuario.
+8. Seguridad y permisos
+Figura 3. Modelo de riesgo R0/R1/R2/R3/RX.
+Nivel
+Clase
+Política
+Ejemplos
+R0
+Lectura segura
+Automático
+RAM, CPU, logs, estado de servicios.
+R1
+Acción reversible
+Automático + auditoría
+Abrir app, volumen, notificación.
+R2
+Modificación
+Explicar + confirmar
+Editar/crear archivo, reiniciar servicio, instalar paquete.
+R3
+Crítica/destructiva
+Confirmación reforzada + autenticación del SO
+sudo, bootloader, firewall, usuarios, cambios críticos.
+RX
+Prohibida
+Rechazar
+Destrucción masiva, evasión de controles o acciones expresamente bloqueadas.
+8.1 Reglas de seguridad
+El riesgo se asigna a herramientas/operaciones y no puede reducirse porque el LLM “considere” segura una acción.
+Kwiaty no guarda contraseñas. La autenticación R3 deberá delegarse a mecanismos del sistema como polkit/sudo.
+Las automatizaciones no saltan permisos; cada paso conserva su nivel de riesgo.
+El sistema debe considerar riesgo acumulativo de secuencias aparentemente inocuas (p. ej. descargar + ejecutar).
+Contenido web, archivos y salidas externas se consideran datos no confiables y no pueden redefinir políticas.
+Logs de auditoría deben omitir o redactar secretos detectados.
+8.2 Política de datos para cloud
+Categoría
+Ejemplos
+Política
+Públicos
+Preguntas generales, documentación pública, búsquedas.
+Puede utilizar cloud si la política lo permite.
+Privados
+Código privado, capturas, logs, memoria de proyectos.
+Solicitar/usar consentimiento según categoría; sanitizar.
+Restringidos
+Contraseñas, tokens, API keys, cookies, SSH keys, secretos .env.
+No enviar; bloquear o redactar antes de cualquier salida.
+9. Memoria persistente y contexto
+Kwiaty distinguirá memoria persistente de contexto temporal. No almacenará por defecto conversaciones completas ni telemetría continua.
+9.1 Categorías de memoria
+Categoría
+Ejemplos
+Persistencia
+Preferencias
+IDE, shell, terminal, políticas de Kwiaty.
+Largo plazo
+Proyectos
+Nombre, ruta, stack, herramientas asociadas.
+Largo plazo
+Alias/entidades
+“mi IDE”, “proyecto de mensajería”, “servidor local”.
+Largo plazo
+Hechos explícitos
+“Recuerda que este proyecto usa Java 21”.
+Según usuario
+Contexto de sesión
+Referencias como “eso”, “arráncalo”.
+Temporal; no memoria
+Contexto dinámico
+CPU, RAM, red, app activa.
+Consulta en vivo; no memoria
+9.2 Reglas
+La memoria explícita tiene prioridad sobre inferencias automáticas.
+En v1, Kwiaty puede sugerir guardar algo, pero no debe almacenar inferencias silenciosamente.
+Credenciales, tokens, cookies, claves SSH, .env, logs completos y capturas no se convierten en memoria ordinaria.
+El usuario puede crear, consultar, actualizar y eliminar recuerdos.
+Recuerdos contradictorios de la misma clave deben actualizarse en lugar de acumularse sin control.
+Se recuperan pocos recuerdos relevantes para una tarea en lugar de cargar toda la base.
+9.3 Almacenamiento
+Para el MVP se recomienda almacenamiento local ligero (por ejemplo SQLite + metadatos y búsqueda tradicional). Una base vectorial/embeddings no forma parte del diseño inicial y solo se añadirá si la escala real de memoria lo justifica.
+10. Automation Engine y proactividad
+Figura 4. Ejemplo de automatización con permisos y verificación.
+10.1 Automatizaciones
+Una automatización es una secuencia conocida y reutilizable; una tarea agente es un objetivo abierto gestionado por el Orchestrator.
+Las automatizaciones pueden aceptar parámetros, por ejemplo development_environment(project="Wasa").
+Cada paso conserva su clasificación R0/R1/R2/R3/RX.
+Acciones relevantes se verifican antes de continuar.
+El usuario puede cancelar una automatización en el siguiente punto seguro.
+Las herramientas que modifican configuración deberán declarar si ofrecen rollback y, cuando sea práctico, crear copia de seguridad.
+Crear una nueva automatización en v1 requiere propuesta de pasos + revisión del usuario; no se activa silenciosamente.
+10.2 Estados
+PENDING → RUNNING → WAITING_PERMISSION → RUNNING → COMPLETED                                      FAILED / CANCELLED
+10.3 Proactividad controlada
+Nivel
+Comportamiento
+Ejemplo
+P0
+Silencioso / registrar
+Pico temporal irrelevante de CPU.
+P1
+Notificación informativa
+Batería baja o disco cercano a límite.
+P2
+Sugerencia de acción
+Docker falló; ofrecer revisar logs.
+El monitor deberá preferir eventos del sistema e intervalos razonables, aplicar cooldown, deduplicación, prioridades y modo no molestar. Detectar un problema nunca autoriza automáticamente acciones R2/R3.
+11. Interfaz flotante y CLI
+11.1 Ventana flotante
+Figura 5. Mockup conceptual de la ventana flotante compacta y expandida.
+Atajo global propuesto: Super + K.
+Estados: COLLAPSED, INPUT, WORKING y EXPANDED.
+Las tareas simples pueden responder de forma corta y cerrar la ventana; las complejas expanden la superficie.
+Las confirmaciones R2 muestran acción, motivo y riesgo; las R3 añaden consecuencia, reversibilidad y autenticación del sistema.
+La UI debe indicar discretamente Local/Cloud y permitir mantener local una petición cuando corresponda.
+El progreso muestra operaciones observables (“Leyendo logs…”) y no razonamiento privado del modelo.
+Las notificaciones proactivas deberán usar el sistema nativo de KDE y abrir Kwiaty solo si el usuario decide investigar.
+11.2 Historial y modos de detalle
+Elemento
+Contenido
+Conversation History
+Mensajes visibles recientes. No equivale al contexto enviado al modelo.
+Activity History
+Tools ejecutadas, autorizaciones, éxito/fallo y metadatos auditables.
+Normal
+Conclusión breve para uso cotidiano.
+Technical
+Servicio, exit code, log relevante, archivo implicado.
+Debug
+Tool calls, duraciones, provider y errores internos; orientado al desarrollo de Kwiaty.
+11.3 CLI
+Figura 6. Mockup conceptual de la CLI secundaria.
+La CLI no será otro producto; compartirá el mismo Core y políticas que la interfaz gráfica. Además de lenguaje natural, ofrecerá operaciones administrativas estructuradas.
+kwiaty "revisa docker"kwiaty statuskwiaty memory listkwiaty tools listkwiaty automations listkwiaty model status# Futuro opcional: salida --json para scripting
+12. Requisitos funcionales del MVP
+Las siguientes tablas consolidan los requisitos aprobados y su prioridad MoSCoW. MUST define el núcleo sin el cual Kwiaty v1 no cumple su propósito; SHOULD es importante pero no bloquea el primer hito utilizable; COULD aporta valor; WON’T v1 queda deliberadamente fuera.
+12.1 Núcleo y conversación
+ID
+Requisito
+Prioridad
+RF-CORE-01
+Recibir instrucciones en lenguaje natural.
+MUST
+RF-CORE-02
+Determinar si una solicitud se resuelve directamente, mediante herramienta o LLM.
+MUST
+RF-CORE-03
+Mantener contexto durante la conversación actual.
+MUST
+RF-CORE-04
+Resolver referencias contextuales como “eso”, “el servicio” o “hazlo”.
+MUST
+RF-CORE-05
+Informar cuando no pueda completar una tarea.
+MUST
+RF-CORE-06
+Mostrar estados operativos durante tareas prolongadas.
+SHOULD
+RF-CORE-07
+Permitir cancelar una tarea cuando sea técnicamente posible.
+MUST
+12.2 IA y modelos
+ID
+Requisito
+Prioridad
+RF-AI-01
+Usar un modelo local mediante Ollama como proveedor principal.
+MUST
+RF-AI-02
+Desacoplar el modelo del resto del Core.
+MUST
+RF-AI-03
+Detectar disponibilidad de Ollama/modelo local.
+MUST
+RF-AI-04
+Conservar funciones deterministas aunque Ollama no esté disponible.
+MUST
+RF-AI-05
+Permitir proveedor cloud alternativo cuando las políticas lo permitan.
+SHOULD
+RF-AI-06
+Informar cuando una tarea vaya a procesarse en cloud.
+SHOULD
+RF-AI-07
+Permitir selección manual local/cloud.
+COULD
+RF-AI-08
+Soportar simultáneamente varios modelos locales especializados.
+WON'T v1
+12.3 Tool System
+ID
+Requisito
+Prioridad
+RF-TOOL-01
+Mantener un registro de herramientas disponibles.
+MUST
+RF-TOOL-02
+Cada tool declara nombre, descripción, parámetros y nivel de riesgo.
+MUST
+RF-TOOL-03
+Validar parámetros antes de ejecutar.
+MUST
+RF-TOOL-04
+Rechazar herramientas inexistentes solicitadas por el LLM.
+MUST
+RF-TOOL-05
+Devolver resultados mediante una estructura común.
+MUST
+RF-TOOL-06
+Impedir acceso directo e irrestricto del LLM al shell.
+MUST
+RF-TOOL-07
+Declarar disponibilidad offline.
+SHOULD
+RF-TOOL-08
+Declarar plataformas compatibles.
+SHOULD
+12.4 Sistema
+ID
+Requisito
+Prioridad
+RF-SYS-01
+Abrir aplicaciones instaladas.
+MUST
+RF-SYS-02
+Consultar procesos en ejecución.
+MUST
+RF-SYS-03
+Consultar uso de CPU.
+MUST
+RF-SYS-04
+Consultar uso de RAM.
+MUST
+RF-SYS-05
+Consultar almacenamiento disponible.
+MUST
+RF-SYS-06
+Consultar batería cuando exista.
+SHOULD
+RF-SYS-07
+Consultar estado de servicios.
+MUST
+RF-SYS-08
+Iniciar/detener/reiniciar servicios con autorización correspondiente.
+MUST
+RF-SYS-09
+Cerrar aplicaciones según políticas.
+SHOULD
+RF-SYS-10
+Controlar volumen y brillo.
+COULD
+12.5 Diagnóstico
+ID
+Requisito
+Prioridad
+RF-DIAG-01
+Obtener resumen del estado del sistema.
+MUST
+RF-DIAG-02
+Identificar procesos con alto consumo de memoria.
+MUST
+RF-DIAG-03
+Identificar procesos con alto consumo de CPU.
+MUST
+RF-DIAG-04
+Consultar logs recientes de servicios.
+MUST
+RF-DIAG-05
+Consultar errores relevantes del sistema.
+MUST
+RF-DIAG-06
+Entregar resultados al modelo para interpretación.
+MUST
+RF-DIAG-07
+Distinguir diagnóstico de acciones correctivas.
+MUST
+RF-DIAG-08
+Verificar si una corrección solucionó el problema.
+MUST
+12.6 Terminal
+ID
+Requisito
+Prioridad
+RF-TERM-01
+Ejecutar operaciones de terminal previamente autorizadas.
+MUST
+RF-TERM-02
+Clasificar riesgo del comando antes de ejecutarlo.
+MUST
+RF-TERM-03
+Detectar privilegios elevados.
+MUST
+RF-TERM-04
+Detectar operaciones potencialmente destructivas.
+MUST
+RF-TERM-05
+Capturar stdout, stderr y código de salida.
+MUST
+RF-TERM-06
+Mostrar al usuario el comando previsto cuando corresponda.
+MUST
+RF-TERM-07
+Ejecutar comandos arbitrarios del modelo sin validación.
+WON'T v1
+12.7 Desarrollo
+ID
+Requisito
+Prioridad
+RF-DEV-01
+Identificar información básica de un proyecto.
+SHOULD
+RF-DEV-02
+Consultar estado de repositorio Git.
+MUST
+RF-DEV-03
+Consultar cambios Git relevantes.
+SHOULD
+RF-DEV-04
+Consultar contenedores Docker.
+MUST
+RF-DEV-05
+Consultar logs de Docker.
+MUST
+RF-DEV-06
+Ejecutar pruebas mediante herramientas configuradas.
+SHOULD
+RF-DEV-07
+Analizar errores técnicos mediante el modelo local.
+MUST
+RF-DEV-08
+Convertirse en un IDE completo.
+WON'T v1
+12.8 Archivos
+ID
+Requisito
+Prioridad
+RF-FILE-01
+Buscar archivos cuando una tarea lo requiera.
+MUST
+RF-FILE-02
+Leer archivos accesibles para proporcionar contexto.
+MUST
+RF-FILE-03
+Requerir política correspondiente para crear/modificar archivos.
+MUST
+RF-FILE-04
+Clasificar eliminación de archivos como acción sensible.
+MUST
+RF-FILE-05
+Funcionar como administrador gráfico completo de archivos.
+WON'T v1
+12.9 Seguridad
+ID
+Requisito
+Prioridad
+RF-SEC-01
+Toda tool pasa por Permission Manager.
+MUST
+RF-SEC-02
+Soportar R0, R1, R2, R3 y RX.
+MUST
+RF-SEC-03
+R0 puede ejecutarse automáticamente.
+MUST
+RF-SEC-04
+R1 puede ejecutarse automáticamente y se registra.
+MUST
+RF-SEC-05
+R2 requiere confirmación explícita.
+MUST
+RF-SEC-06
+R3 requiere confirmación reforzada y autenticación del SO cuando aplique.
+MUST
+RF-SEC-07
+RX se rechaza.
+MUST
+RF-SEC-08
+El LLM no puede modificar políticas de seguridad por sí mismo.
+MUST
+RF-SEC-09
+No almacenar contraseñas del usuario.
+MUST
+RF-SEC-10
+Evaluar riesgo acumulativo de operaciones encadenadas.
+SHOULD
+12.10 Memoria
+ID
+Requisito
+Prioridad
+RF-MEM-01
+Almacenar preferencias persistentes.
+MUST
+RF-MEM-02
+Almacenar información básica de proyectos autorizados.
+MUST
+RF-MEM-03
+Guardar recuerdos explícitos solicitados por el usuario.
+MUST
+RF-MEM-04
+Consultar recuerdos.
+MUST
+RF-MEM-05
+Actualizar recuerdos.
+MUST
+RF-MEM-06
+Eliminar recuerdos.
+MUST
+RF-MEM-07
+Mantener memoria local por defecto.
+MUST
+RF-MEM-08
+Recuperar solo recuerdos relevantes.
+SHOULD
+RF-MEM-09
+Sugerir recuerdos útiles.
+COULD
+RF-MEM-10
+Guardar todo el historial como memoria permanente.
+WON'T v1
+12.11 Automatización
+ID
+Requisito
+Prioridad
+RF-AUT-01
+Ejecutar secuencias de múltiples tools.
+MUST
+RF-AUT-02
+Cada paso respeta sus permisos.
+MUST
+RF-AUT-03
+Verificar resultado de acciones importantes.
+MUST
+RF-AUT-04
+Informar estado de la automatización.
+MUST
+RF-AUT-05
+Permitir cancelar automatizaciones.
+MUST
+RF-AUT-06
+Almacenar automatizaciones previamente aprobadas.
+SHOULD
+RF-AUT-07
+Reutilizar automatizaciones con parámetros.
+SHOULD
+RF-AUT-08
+Sugerir nuevas automatizaciones.
+COULD
+RF-AUT-09
+Crear/activar automatizaciones sin revisión del usuario.
+WON'T v1
+12.12 Proactividad
+ID
+Requisito
+Prioridad
+RF-PRO-01
+Observar conjunto limitado de métricas habilitadas.
+SHOULD
+RF-PRO-02
+Generar notificaciones ante eventos importantes.
+SHOULD
+RF-PRO-03
+Ofrecer investigar problemas detectados.
+SHOULD
+RF-PRO-04
+Aplicar cooldown a alertas repetidas.
+SHOULD
+RF-PRO-05
+Permitir desactivar categorías de monitoreo.
+SHOULD
+RF-PRO-06
+Ejecutar soluciones R2/R3 de forma proactiva sin autorización.
+WON'T v1
+12.13 Pantalla
+ID
+Requisito
+Prioridad
+RF-VIS-01
+Identificar ventana activa cuando sea posible.
+SHOULD
+RF-VIS-02
+Capturar ventana/pantalla solo bajo solicitud o autorización.
+SHOULD
+RF-VIS-03
+Usar captura como contexto de consulta.
+SHOULD
+RF-VIS-04
+No almacenar capturas permanentemente por defecto.
+MUST
+RF-VIS-05
+Observar continuamente la pantalla.
+WON'T v1
+12.14 Web
+ID
+Requisito
+Prioridad
+RF-WEB-01
+Realizar búsquedas web cuando exista conexión.
+SHOULD
+RF-WEB-02
+Extraer información relevante de resultados consultados.
+SHOULD
+RF-WEB-03
+Tratar contenido web como fuente no confiable de instrucciones.
+MUST
+RF-WEB-04
+Impedir que contenido web salte permisos/políticas.
+MUST
+RF-WEB-05
+Sanitizar información privada antes de enviarla externamente.
+SHOULD
+12.15 Interfaz
+ID
+Requisito
+Prioridad
+RF-UI-01
+Proporcionar ventana flotante.
+MUST
+RF-UI-02
+Activarse mediante atajo global.
+MUST
+RF-UI-03
+Mostrar respuestas y estados de tareas.
+MUST
+RF-UI-04
+Mostrar confirmaciones R2/R3.
+MUST
+RF-UI-05
+Indicar uso de cloud.
+SHOULD
+RF-UI-06
+Permitir ver detalles técnicos.
+SHOULD
+RF-UI-07
+Integrarse con bandeja del sistema.
+SHOULD
+RF-UI-08
+Usar notificaciones KDE para eventos proactivos.
+SHOULD
+RF-UI-09
+Tener avatar animado/3D.
+WON'T v1
+12.16 CLI
+ID
+Requisito
+Prioridad
+RF-CLI-01
+Proporcionar interfaz CLI.
+MUST
+RF-CLI-02
+Usar el mismo Core que la GUI.
+MUST
+RF-CLI-03
+Aceptar consultas en lenguaje natural.
+MUST
+RF-CLI-04
+Consultar estado de Kwiaty.
+MUST
+RF-CLI-05
+Inspeccionar herramientas disponibles.
+SHOULD
+RF-CLI-06
+Administrar memoria.
+SHOULD
+RF-CLI-07
+Ofrecer salida JSON para comandos seleccionados.
+COULD
+12.17 Auditoría
+ID
+Requisito
+Prioridad
+RF-AUD-01
+Registrar acciones realizadas mediante tools.
+MUST
+RF-AUD-02
+Registrar si una acción requirió autorización.
+MUST
+RF-AUD-03
+Registrar éxito o fallo.
+MUST
+RF-AUD-04
+Permitir consultar actividad reciente.
+SHOULD
+RF-AUD-05
+No almacenar secretos detectados en logs.
+MUST
+12.18 Plataforma y offline
+ID
+Requisito
+Prioridad
+RF-PLAT-01
+Soportar oficialmente CachyOS en v1.
+MUST
+RF-PLAT-02
+Encapsular operaciones específicas del SO mediante Platform Adapter.
+MUST
+RF-PLAT-03
+Evitar dependencias directas innecesarias del Core con CachyOS.
+MUST
+RF-PLAT-04
+Soporte oficial para otras distribuciones Linux.
+WON'T v1
+RF-PLAT-05
+Soporte Windows/macOS.
+WON'T v1
+RF-OFF-01
+Iniciar y funcionar sin Internet.
+MUST
+RF-OFF-02
+Usar modelo local offline.
+MUST
+RF-OFF-03
+Mantener tools locales offline.
+MUST
+RF-OFF-04
+Informar capacidades no disponibles offline.
+SHOULD
+RF-OFF-05
+No detener tareas puramente locales por pérdida de Internet.
+MUST
+13. Requisitos no funcionales
+ID
+Requisito
+Estado
+RNF-PERF-01
+Kwiaty deberá consumir menos de 500 MB de RAM en reposo, excluyendo Ollama y el modelo cargado.
+Aprobado
+RNF-PERF-02
+Acciones deterministas locales deberán sentirse inmediatas y no cargar el LLM cuando no sea necesario.
+Aprobado; sin umbral contractual exacto
+RNF-PERF-03
+El monitoreo proactivo deberá minimizar CPU/RAM y preferir eventos/intervalos razonables.
+Aprobado; CPU exacta pendiente
+RNF-AI-01
+Modelos pesados, especialmente visión, no deberán permanecer cargados sin necesidad.
+Aprobado
+RNF-AVAIL-01
+Las funciones locales centrales deberán seguir disponibles sin Internet.
+Aprobado
+RNF-AVAIL-02
+La indisponibilidad de Ollama no deberá inutilizar herramientas deterministas.
+Aprobado
+RNF-SEC-01
+Las decisiones de seguridad deben ser independientes del texto generado por el LLM.
+Aprobado
+RNF-SEC-02
+Kwiaty no almacenará contraseñas y delegará autenticación crítica al sistema operativo.
+Aprobado
+RNF-PRIV-01
+Memoria, preferencias y auditoría serán locales por defecto.
+Aprobado
+RNF-PRIV-02
+Capturas de pantalla no se almacenarán permanentemente por defecto.
+Aprobado
+RNF-MAINT-01
+Los módulos deberán tener responsabilidades separadas y contratos claros para poder probarse de forma aislada.
+Aprobado
+RNF-PORT-01
+El Core deberá permanecer independiente de detalles de CachyOS mediante un Platform Adapter.
+Aprobado
+RNF-OBS-01
+Toda acción real relevante deberá dejar trazabilidad suficiente para explicar qué hizo Kwiaty.
+Aprobado
+RNF-UX-01
+La UI deberá presentar operaciones y resultados, no el razonamiento privado del modelo.
+Aprobado
+14. Escenarios de aceptación
+ID
+Escenario
+Criterio de aceptación
+AC-01
+“Abre Firefox”
+La ruta rápida abre la aplicación sin cargar innecesariamente el LLM; actividad R1 registrada.
+AC-02
+“¿Cuánta RAM estoy usando?”
+Kwiaty obtiene el dato mediante tool R0 y responde con información estructurada.
+AC-03
+“¿Por qué Docker no funciona?”
+Consulta estado → logs → análisis local; no cambia nada durante diagnóstico.
+AC-04
+“Arréglalo” después del diagnóstico
+Propone acción; si es R2 solicita confirmación; ejecuta; verifica y reporta resultado.
+AC-05
+“Recuerda que este proyecto usa Java 21”
+Memory Manager guarda hecho explícito localmente y puede recuperarlo después.
+AC-06
+“Prepara mi entorno de desarrollo”
+Automation Engine ejecuta secuencia, pausa en permisos requeridos y verifica servicios.
+AC-07
+“Busca si este error tiene un bug conocido”
+Si hay conexión, usa web; contenido web no puede ordenar acciones del sistema.
+AC-08
+Internet desconectado
+Conversación local, memoria, diagnóstico y automatizaciones locales siguen operativas.
+AC-09
+Ollama detenido
+Kwiaty informa la indisponibilidad pero mantiene comandos y tools deterministas.
+AC-10
+Página web contiene prompt injection
+La instrucción externa se trata como datos y no puede modificar políticas ni ejecutar tools.
+AC-11
+Comando crítico solicitado
+R3 muestra contexto/impacto y delega autenticación a Linux; no almacena contraseña.
+AC-12
+“Cancela” durante una automatización
+El Engine marca cancelación y se detiene en el siguiente punto seguro.
+15. Fuera de alcance y evolución futura
+15.1 Deliberadamente fuera de Kwiaty v1
+Sistema multiagente con agentes especializados independientes.
+Asistente de voz permanente / wake word y pipeline STT/TTS completo.
+IDE completo o editor avanzado de código.
+Administrador gráfico completo de archivos.
+Observación continua de pantalla.
+Plataforma pública de plugins/extensiones.
+Integraciones de calendario, correo, Spotify u otros servicios externos.
+Recordatorios/notas como módulo principal.
+Avatar 3D, HUD futurista u overlays complejos.
+Base vectorial/embeddings obligatoria para memoria.
+Soporte oficial inicial para Windows, macOS u otras distribuciones.
+15.2 Evolución prevista
+La arquitectura permite añadir voz, múltiples proveedores/modelos, plugins e incluso agentes especializados en el futuro sin convertir esas posibilidades en dependencias del MVP. La evolución deberá justificarse por necesidades observadas durante uso real.
+16. Decisiones pendientes
+Estos elementos todavía no fueron aprobados con un valor concreto y deberán resolverse antes o durante el plan de implementación. Se registran explícitamente para evitar decisiones implícitas.
+Tema
+Estado
+Lenguaje/framework del Core
+No decidido.
+Tecnología GUI
+No decidido; debe soportar ventana flotante, tray y atajo global en KDE/Wayland.
+Modelo local exacto
+Qwen se considera candidato, pero tamaño/quantización aún no están fijados.
+Proveedor cloud
+No decidido.
+Límites del task loop
+Máximo de pasos, tiempo y tool calls por tarea pendientes de cuantificar.
+CPU en reposo
+Se acordó “ligero”, sin porcentaje exacto.
+Latencia contractual
+Se acordó latencia dependiente de tarea; no hay SLA numérico final.
+Persistencia exacta
+SQLite es recomendación de diseño, no decisión tecnológica cerrada.
+Atajo final
+Super + K es la propuesta actual; puede ajustarse por conflictos del entorno.
+Umbrales proactivos
+RAM/disco/batería configurables; valores por defecto aún por definir.
+17. Resumen ejecutivo de arquitectura
+Arquitectura aprobadaKwiaty v1 utiliza un Core modular con Orchestrator, Context Manager, Model Router, Permission Manager, Tool Manager, Automation Engine, Memory Manager, Proactive Monitor y Audit Logger. Las capacidades del sistema se exponen mediante tools controladas y un Platform Adapter para CachyOS. Ollama es local-first y cloud es un fallback regulado. La ventana flotante y la CLI comparten el mismo Core.
+Usuario  ↓Ventana flotante / CLI  ↓Orchestrator  ├─ Intent Router  ├─ Context + Memory  ├─ Model Router → Ollama / Cloud  └─ Tool Manager       ↓     Permission Manager       ↓     Tools / Automation       ↓     CachyOS Adapter       ↓     Sistema operativo       ↓     Verificación + Audit + Respuesta
+La restricción más importante del diseño es deliberada: el LLM nunca es la autoridad de seguridad y nunca obtiene acceso directo e irrestricto al sistema. Esta separación permite cambiar modelos, ampliar herramientas y evolucionar Kwiaty sin entregar el control del equipo al texto generado por un modelo.
+Este documento cierra la fase de diseño conceptual consolidado. El siguiente artefacto, cuando se apruebe esta especificación, debería ser un plan de implementación por fases y tareas verificables, manteniendo el alcance del MVP aquí definido.
