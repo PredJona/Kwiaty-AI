@@ -130,6 +130,25 @@ class TestCachyOSAdapter(unittest.TestCase):
 
         self.assertEqual(adapter.get_cpu_info(sample_interval=0).used_percent, 0.0)
 
+    def test_cpu_usage_does_not_double_count_guest_time(self):
+        stat_path = os.path.join(self.tmp_dir.name, "stat")
+        with open(stat_path, "w", encoding="utf-8") as stat_file:
+            stat_file.write("cpu 20 0 20 60 0 0 0 0 10 0\n")
+
+        def replace_stat(_interval):
+            with open(stat_path, "w", encoding="utf-8") as stat_file:
+                stat_file.write("cpu 60 0 40 100 0 0 0 0 30 0\n")
+
+        adapter = CachyOSAdapter(
+            proc_dir=self.tmp_dir.name,
+            os_release_path=self.mock_os_release,
+            sleep_fn=replace_stat,
+        )
+
+        metrics = adapter.get_cpu_info(sample_interval=0)
+
+        self.assertEqual(metrics.used_percent, 60.0)
+
     def test_disk_usage_returns_structured_bytes(self):
         with patch(
             "kwiaty.platform.cachyos.shutil.disk_usage",

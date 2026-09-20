@@ -109,7 +109,8 @@ class CachyOSAdapter(PlatformAdapter):
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"Error al leer métricas de CPU en {stat_path}: {exc}") from exc
 
-        total = sum(values)
+        # guest y guest_nice ya están incluidos en user y nice en /proc/stat.
+        total = sum(values[:8])
         idle = values[3] + (values[4] if len(values) > 4 else 0)
         return total, idle
 

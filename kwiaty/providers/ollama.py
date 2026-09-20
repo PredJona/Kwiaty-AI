@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import http.client
 import json
 import math
 import os
@@ -10,7 +11,7 @@ import socket
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from kwiaty.providers.contracts import ProviderResponse, ProviderStatus
 
@@ -36,7 +37,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 class _UrllibTransport:
     def __init__(self):
-        self._opener = build_opener(_NoRedirectHandler())
+        self._opener = build_opener(ProxyHandler({}), _NoRedirectHandler())
 
     def request(
         self,
@@ -71,11 +72,11 @@ class OllamaProvider:
         timeout: float,
         transport: _Transport | None = None,
     ):
-        parsed = urlsplit(base_url)
         try:
+            parsed = urlsplit(base_url)
             port = parsed.port
         except ValueError as exc:
-            raise OllamaConfigurationError("El puerto de Ollama no es válido.") from exc
+            raise OllamaConfigurationError("La URL de Ollama no es válida.") from exc
 
         if parsed.scheme != "http":
             raise OllamaConfigurationError("Ollama debe usar HTTP local.")
@@ -186,6 +187,10 @@ class OllamaProvider:
             ) from exc
         except URLError as exc:
             raise _OllamaRequestError("No se pudo conectar con Ollama local.") from exc
+        except (http.client.HTTPException, OSError) as exc:
+            raise _OllamaRequestError(
+                "La conexión con Ollama se interrumpió durante la respuesta."
+            ) from exc
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise _OllamaRequestError(
                 "Ollama devolvió una respuesta JSON inválida."

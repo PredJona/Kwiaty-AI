@@ -178,6 +178,19 @@ class TestOrchestrator(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("modelo", result.message.lower())
 
+    def test_malformed_ollama_url_does_not_break_deterministic_query(self):
+        values = {
+            "KWIATY_OLLAMA_URL": "http://[::1:11434",
+            "KWIATY_OLLAMA_MODEL": "qwen2.5:7b",
+        }
+        with patch.dict(os.environ, values, clear=True):
+            orchestrator = Orchestrator.create_default(log_path=self.audit_file)
+
+        result = orchestrator.process_query("status")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.route, RouteType.DETERMINISTIC_TOOL)
+
     def test_default_registry_contains_new_r0_tools(self):
         tools = {
             metadata.name: metadata

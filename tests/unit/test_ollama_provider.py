@@ -1,13 +1,19 @@
 """Pruebas del proveedor local Ollama."""
 
 import json
+import http.client
 import os
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
+from urllib.request import ProxyHandler
 
 from kwiaty.providers.contracts import ProviderResponse, ProviderStatus
-from kwiaty.providers.ollama import OllamaConfigurationError, OllamaProvider
+from kwiaty.providers.ollama import (
+    OllamaConfigurationError,
+    OllamaProvider,
+    _UrllibTransport,
+)
 
 
 class FakeTransport:
@@ -54,6 +60,14 @@ class TestOllamaConfiguration(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(OllamaConfigurationError):
                 OllamaProvider(base_url=url, model="qwen2.5:7b", timeout=5)
 
+    def test_malformed_url_is_a_configuration_error(self):
+        with self.assertRaises(OllamaConfigurationError):
+            OllamaProvider(
+                base_url="http://[::1:11434",
+                model="qwen2.5:7b",
+                timeout=5,
+            )
+
     def test_requires_non_empty_model_and_positive_timeout(self):
         with self.assertRaises(OllamaConfigurationError):
             OllamaProvider(
@@ -85,6 +99,18 @@ class TestOllamaConfiguration(unittest.TestCase):
 
 
 class TestOllamaTransport(unittest.TestCase):
+    def test_real_transport_disables_environment_proxies(self):
+        with patch("kwiaty.providers.ollama.build_opener") as build_opener:
+            _UrllibTransport()
+
+        proxy_handlers = [
+            handler
+            for handler in build_opener.call_args.args
+            if isinstance(handler, ProxyHandler)
+        ]
+        self.assertEqual(len(proxy_handlers), 1)
+        self.assertEqual(proxy_handlers[0].proxies, {})
+
     def test_status_distinguishes_server_and_exact_model(self):
         provider = make_provider(
             {"models": [{"name": "qwen2.5:7b", "model": "qwen2.5:7b"}]}
@@ -125,6 +151,9 @@ class TestOllamaTransport(unittest.TestCase):
             TimeoutError(),
             URLError("offline"),
             HTTPError("http://127.0.0.1:11434", 500, "error", {}, None),
+            http.client.IncompleteRead(b"partial", 20),
+            http.client.RemoteDisconnected("closed"),
+            ConnectionResetError("reset"),
         )
 
         for failure in failures:
