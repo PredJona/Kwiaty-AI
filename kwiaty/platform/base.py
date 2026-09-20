@@ -10,6 +10,35 @@ from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
+class CpuMetrics:
+    """Uso agregado de CPU durante un intervalo de muestreo."""
+
+    used_percent: float
+    logical_cpus: int
+
+
+@dataclass(frozen=True)
+class DiskMetrics:
+    """Uso estructurado de un sistema de archivos."""
+
+    path: str
+    total_bytes: int
+    used_bytes: int
+    free_bytes: int
+    used_percent: float
+
+
+@dataclass(frozen=True)
+class ProcessMetrics:
+    """Consumo observado de un proceso durante el muestreo."""
+
+    pid: int
+    name: str
+    cpu_percent: float
+    memory_bytes: int
+
+
+@dataclass(frozen=True)
 class MemoryMetrics:
     """Métricas estandarizadas de memoria RAM."""
     total_bytes: int
@@ -78,4 +107,21 @@ class PlatformAdapter(Protocol):
 
     def get_system_status(self) -> SystemStatusInfo:
         """Obtiene un diagnóstico general del estado del sistema."""
+        ...
+
+    def get_cpu_info(self, sample_interval: float = 0.1) -> CpuMetrics:
+        """Muestrea el uso agregado de CPU."""
+        ...
+
+    def get_disk_info(self, path: str = "/") -> DiskMetrics:
+        """Obtiene uso del sistema de archivos que contiene una ruta."""
+        ...
+
+    def get_top_processes(
+        self,
+        sort_by: str = "memory",
+        limit: int = 5,
+        sample_interval: float = 0.1,
+    ) -> list[ProcessMetrics]:
+        """Lista procesos ordenados por CPU o memoria observada."""
         ...
