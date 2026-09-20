@@ -178,6 +178,21 @@ class TestOrchestrator(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("modelo", result.message.lower())
 
+    def test_default_registry_contains_new_r0_tools(self):
+        tools = {
+            metadata.name: metadata
+            for metadata in self.orchestrator.tool_registry.list_tools()
+        }
+
+        for name in (
+            "kwiaty.system.cpu_usage",
+            "kwiaty.system.disk_usage",
+            "kwiaty.system.top_processes",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, tools)
+                self.assertEqual(tools[name].risk_level, RiskLevel.R0)
+
 
 if __name__ == "__main__":
     unittest.main()

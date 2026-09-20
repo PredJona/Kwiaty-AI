@@ -52,11 +52,33 @@ class TestCliIntegration(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("kwiaty.system.status", out)
         self.assertIn("kwiaty.system.ram_usage", out)
+        self.assertIn("kwiaty.system.cpu_usage", out)
+        self.assertIn("kwiaty.system.disk_usage", out)
+        self.assertIn("kwiaty.system.top_processes", out)
 
     def test_cli_audit_list(self):
         """kwiaty audit list muestra registros de auditoría recientes."""
         code, out, err = self.run_cli(["audit", "list"])
         self.assertEqual(code, 0)
+
+    def test_cli_cpu_query(self):
+        code, out, err = self.run_cli(["uso de cpu"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Uso de CPU", out)
+
+    def test_cli_disk_query(self):
+        code, out, err = self.run_cli(["espacio en disco"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Almacenamiento", out)
+
+    def test_cli_process_query(self):
+        code, out, err = self.run_cli(["procesos que más memoria usan"])
+
+        self.assertEqual(code, 0)
+        self.assertIn("Procesos", out)
+        self.assertIn("PID", out)
 
 
 if __name__ == "__main__":

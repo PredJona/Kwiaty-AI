@@ -21,8 +21,11 @@ from kwiaty.providers.ollama import OllamaConfigurationError, OllamaProvider
 from kwiaty.security.permission_manager import PermissionManager
 from kwiaty.security.risk import RiskLevel, PermissionDecision, DecisionStatus
 from kwiaty.tools.contracts import ToolResult
+from kwiaty.tools.diagnostics.cpu_usage import CpuUsageTool
+from kwiaty.tools.diagnostics.disk_usage import DiskUsageTool
 from kwiaty.tools.diagnostics.ram_usage import RamUsageTool
 from kwiaty.tools.diagnostics.system_status import SystemStatusTool
+from kwiaty.tools.diagnostics.top_processes import TopProcessesTool
 from kwiaty.tools.registry import ToolRegistry, ToolNotFoundError, InvalidParametersError
 
 
@@ -229,9 +232,12 @@ class Orchestrator:
         context_manager = ContextManager()
 
         registry = ToolRegistry()
-        # Registrar tools diagnósticas R0 aprobadas para la Fase 1
+        # Registrar tools diagnósticas R0 locales
         registry.register(SystemStatusTool())
         registry.register(RamUsageTool())
+        registry.register(CpuUsageTool())
+        registry.register(DiskUsageTool())
+        registry.register(TopProcessesTool())
 
         return cls(
             tool_registry=registry,

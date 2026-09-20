@@ -54,6 +54,29 @@ class IntentRouter:
             r"^memoria$",
         ]
 
+        self._cpu_patterns = [
+            r"^cpu$",
+            r"^uso de cpu$",
+            r"^consumo de cpu$",
+        ]
+
+        self._disk_patterns = [
+            r"^disco$",
+            r"^uso de disco$",
+            r"^espacio en disco$",
+            r"^almacenamiento$",
+        ]
+
+        self._process_memory_patterns = [
+            r"^procesos que m[aá]s memoria usan$",
+            r"^procesos por memoria$",
+        ]
+
+        self._process_cpu_patterns = [
+            r"^procesos que m[aá]s cpu usan$",
+            r"^procesos por cpu$",
+        ]
+
     def _normalize(self, text: str) -> str:
         """Normaliza texto para comparación básica."""
         cleaned = text.strip().lower()
@@ -83,6 +106,46 @@ class IntentRouter:
                     route_type=RouteType.DETERMINISTIC_TOOL,
                     tool_name="kwiaty.system.ram_usage",
                     parameters={},
+                    raw_query=query,
+                    confidence=1.0,
+                )
+
+        for pat in self._cpu_patterns:
+            if re.match(pat, cleaned):
+                return IntentResolution(
+                    route_type=RouteType.DETERMINISTIC_TOOL,
+                    tool_name="kwiaty.system.cpu_usage",
+                    parameters={},
+                    raw_query=query,
+                    confidence=1.0,
+                )
+
+        for pat in self._disk_patterns:
+            if re.match(pat, cleaned):
+                return IntentResolution(
+                    route_type=RouteType.DETERMINISTIC_TOOL,
+                    tool_name="kwiaty.system.disk_usage",
+                    parameters={"path": "/"},
+                    raw_query=query,
+                    confidence=1.0,
+                )
+
+        for pat in self._process_memory_patterns:
+            if re.match(pat, cleaned):
+                return IntentResolution(
+                    route_type=RouteType.DETERMINISTIC_TOOL,
+                    tool_name="kwiaty.system.top_processes",
+                    parameters={"sort_by": "memory", "limit": 5},
+                    raw_query=query,
+                    confidence=1.0,
+                )
+
+        for pat in self._process_cpu_patterns:
+            if re.match(pat, cleaned):
+                return IntentResolution(
+                    route_type=RouteType.DETERMINISTIC_TOOL,
+                    tool_name="kwiaty.system.top_processes",
+                    parameters={"sort_by": "cpu", "limit": 5},
                     raw_query=query,
                     confidence=1.0,
                 )

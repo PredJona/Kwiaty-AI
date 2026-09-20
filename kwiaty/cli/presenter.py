@@ -84,6 +84,35 @@ class CliPresenter:
                 ]
                 return "\n".join(lines)
 
+            if "logical_cpus" in data and "used_percent" in data:
+                return (
+                    f"Uso de CPU: {data['used_percent']}% "
+                    f"({data['logical_cpus']} CPU lógicas)"
+                )
+
+            if "total_bytes" in data and "free_bytes" in data and "path" in data:
+                gib = 1024 ** 3
+                return "\n".join(
+                    [
+                        f"Almacenamiento ({data['path']}): {data['used_percent']}% usado",
+                        f"  • Usado: {round(data['used_bytes'] / gib, 2)} GiB",
+                        f"  • Libre: {round(data['free_bytes'] / gib, 2)} GiB",
+                    ]
+                )
+
+            if "processes" in data and "sort_by" in data:
+                criterion = "CPU" if data["sort_by"] == "cpu" else "memoria"
+                lines = [f"Procesos con mayor uso de {criterion}:"]
+                for process in data["processes"]:
+                    memory_mib = round(process["memory_bytes"] / (1024 ** 2), 1)
+                    lines.append(
+                        f"  • PID {process['pid']} {process['name']}: "
+                        f"CPU {process['cpu_percent']}%, RAM {memory_mib} MiB"
+                    )
+                if not data["processes"]:
+                    lines.append("  • No se encontraron procesos legibles.")
+                return "\n".join(lines)
+
             # Caso genérico estructurado
             return json.dumps(data, indent=2, ensure_ascii=False)
 

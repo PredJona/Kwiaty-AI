@@ -61,6 +61,26 @@ class TestIntentRouter(unittest.TestCase):
             self.assertEqual(resolution.route_type, RouteType.LLM_REASONING)
             self.assertIsNone(resolution.tool_name)
 
+    def test_new_diagnostic_queries_are_deterministic(self):
+        cases = {
+            "uso de cpu": ("kwiaty.system.cpu_usage", {}),
+            "espacio en disco": ("kwiaty.system.disk_usage", {"path": "/"}),
+            "procesos que más memoria usan": (
+                "kwiaty.system.top_processes",
+                {"sort_by": "memory", "limit": 5},
+            ),
+            "procesos que más cpu usan": (
+                "kwiaty.system.top_processes",
+                {"sort_by": "cpu", "limit": 5},
+            ),
+        }
+
+        for query, expected in cases.items():
+            with self.subTest(query=query):
+                result = self.router.resolve(query)
+                self.assertEqual(result.route_type, RouteType.DETERMINISTIC_TOOL)
+                self.assertEqual((result.tool_name, result.parameters), expected)
+
 
 if __name__ == "__main__":
     unittest.main()
