@@ -42,3 +42,21 @@ class ModelProvider(Protocol):
     ) -> ProviderResponse:
         """Genera una respuesta de texto sin ejecutar capacidades externas."""
         ...
+
+
+@dataclass(frozen=True)
+class UnavailableProvider:
+    """Proveedor normalizado para una configuración local no utilizable."""
+
+    provider_name: str
+    detail: str
+
+    def status(self) -> ProviderStatus:
+        return ProviderStatus(False, False, self.detail)
+
+    def generate(
+        self,
+        prompt: str,
+        context: Mapping[str, Any] | None = None,
+    ) -> ProviderResponse:
+        return ProviderResponse(False, "", self.provider_name, self.detail)

@@ -16,6 +16,8 @@ from kwiaty.core.intent_router import IntentRouter, RouteType, IntentResolution
 from kwiaty.core.model_router import ModelRouter, ModelResponse
 from kwiaty.platform.base import PlatformAdapter
 from kwiaty.platform.cachyos import CachyOSAdapter
+from kwiaty.providers.contracts import ModelProvider, UnavailableProvider
+from kwiaty.providers.ollama import OllamaConfigurationError, OllamaProvider
 from kwiaty.security.permission_manager import PermissionManager
 from kwiaty.security.risk import RiskLevel, PermissionDecision, DecisionStatus
 from kwiaty.tools.contracts import ToolResult
@@ -90,12 +92,13 @@ class Orchestrator:
                 parameters={"query": query},
                 risk_level=RiskLevel.R0,
                 authorized=True,
-                execution_success=True,
+                execution_success=model_resp.success,
                 duration_ms=0.0,
+                error_message=model_resp.error,
             )
 
             return OrchestratorResult(
-                success=True,
+                success=model_resp.success,
                 route=RouteType.LLM_REASONING,
                 message=model_resp.content,
                 audit_entry=audit_entry,
@@ -207,13 +210,22 @@ class Orchestrator:
         )
 
     @classmethod
-    def create_default(cls, log_path: Optional[str] = None) -> Orchestrator:
-        """Crea una instancia estándar del Orchestrator con los componentes oficiales de Fase 1."""
+    def create_default(
+        cls,
+        log_path: Optional[str] = None,
+        model_provider: Optional[ModelProvider] = None,
+    ) -> Orchestrator:
+        """Crea el Orchestrator estándar con Ollama local o un fallo controlado."""
         platform_adapter = CachyOSAdapter()
         permission_manager = PermissionManager()
         audit_logger = AuditLogger(log_file_path=log_path)
         intent_router = IntentRouter()
-        model_router = ModelRouter()
+        if model_provider is None:
+            try:
+                model_provider = OllamaProvider.from_env()
+            except OllamaConfigurationError as exc:
+                model_provider = UnavailableProvider("ollama", str(exc))
+        model_router = ModelRouter(model_provider)
         context_manager = ContextManager()
 
         registry = ToolRegistry()

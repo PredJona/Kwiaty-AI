@@ -1,42 +1,58 @@
-"""Enrutador de modelos (Model Router) de Kwiaty.
-
-Desacopla el Core de cualquier modelo o proveedor de IA específico (Principio P-01 / RF-AI-02).
-En la Fase 1, implementa un proveedor desconectado/stub que permite verificar
-que el Core sigue funcionando de forma determinista sin Ollama (RF-AI-04 / RF-OFF-02).
-"""
+"""Enrutador neutral de proveedores de modelos para Kwiaty."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Mapping
+
+from kwiaty.providers.contracts import ModelProvider
 
 
 @dataclass(frozen=True)
 class ModelResponse:
+    """Resultado normalizado que el Core recibe de un proveedor."""
+
     content: str
-    tool_calls: tuple = ()
+    success: bool = True
+    provider_name: str = "unknown"
+    error: str | None = None
     is_offline_notice: bool = False
-    provider_name: str = "offline_stub"
 
 
 class ModelRouter:
-    """Administra la selección e invocación de proveedores de modelos de lenguaje."""
+    """Invoca un proveedor sin exponer sus detalles al resto del Core."""
 
-    def __init__(self, default_provider: str = "ollama"):
-        self._default_provider = default_provider
+    def __init__(self, provider: ModelProvider):
+        self._provider = provider
 
     def is_available(self) -> bool:
-        """Indica si existe un modelo de IA disponible actualmente."""
-        # En la Fase 1 deliberadamente no se conecta a Ollama
-        return False
+        """Indica si tanto el servidor como el modelo están disponibles."""
+        status = self._provider.status()
+        return status.server_available and status.model_available
 
-    def generate(self, prompt: str, context: Optional[Dict[str, Any]] = None) -> ModelResponse:
-        """Emite una respuesta de modelo o avisa de la indisponibilidad de IA."""
+    def generate(
+        self,
+        prompt: str,
+        context: Mapping[str, Any] | None = None,
+    ) -> ModelResponse:
+        """Genera texto o retorna un aviso controlado de indisponibilidad."""
+        status = self._provider.status()
+        if not status.server_available or not status.model_available:
+            detail = status.detail or "El modelo local no está disponible."
+            return ModelResponse(
+                content=detail,
+                success=False,
+                provider_name=self._provider.provider_name,
+                error=detail,
+                is_offline_notice=True,
+            )
+
+        response = self._provider.generate(prompt, context)
+        content = response.content or response.error or "El modelo local no respondió."
         return ModelResponse(
-            content=(
-                "El subsistema LLM (Ollama) no está activo en este incremento funcional (Fase 1). "
-                "Kwiaty está operando en modo puramente determinista y local. "
-                "Puede consultar operaciones directas como 'kwiaty status' o 'cuánta RAM estoy usando'."
-            ),
-            is_offline_notice=True,
-            provider_name="offline_stub",
+            content=content,
+            success=response.success,
+            provider_name=response.provider_name,
+            error=response.error,
+            is_offline_notice=not response.success,
         )

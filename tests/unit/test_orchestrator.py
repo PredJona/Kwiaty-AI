@@ -4,9 +4,11 @@ import os
 import tempfile
 import unittest
 from typing import Dict, Any
+from unittest.mock import patch
 
 from kwiaty.core.orchestrator import Orchestrator
 from kwiaty.core.intent_router import RouteType
+from kwiaty.providers.contracts import ProviderResponse, ProviderStatus
 from kwiaty.security.risk import RiskLevel, DecisionStatus
 from kwiaty.tools.contracts import Tool, ToolMetadata, ToolResult
 from kwiaty.platform.base import PlatformAdapter
@@ -27,12 +29,36 @@ class MockRxTool(Tool):
         return ToolResult(success=True, data={"destroyed": True})
 
 
+class FakeModelProvider:
+    provider_name = "ollama"
+
+    def __init__(self, status, response=None):
+        self._status = status
+        self._response = response or ProviderResponse(
+            True,
+            "respuesta local",
+            self.provider_name,
+        )
+
+    def status(self):
+        return self._status
+
+    def generate(self, prompt, context=None):
+        return self._response
+
+
 class TestOrchestrator(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.audit_file = os.path.join(self.tmp_dir.name, "audit_test.jsonl")
-        self.orchestrator = Orchestrator.create_default(log_path=self.audit_file)
+        self.unavailable_provider = FakeModelProvider(
+            ProviderStatus(False, False, "Ollama no está disponible")
+        )
+        self.orchestrator = Orchestrator.create_default(
+            log_path=self.audit_file,
+            model_provider=self.unavailable_provider,
+        )
 
     def tearDown(self):
         self.tmp_dir.cleanup()
@@ -94,11 +120,63 @@ class TestOrchestrator(unittest.TestCase):
         self.assertIn("Herramienta no registrada", result.message)
 
     def test_llm_reasoning_route_offline_notice(self):
-        """RF-AI-04: Consultas de razonamiento informan el modo offline de la Fase 1."""
+        """RF-AI-04: Consultas de razonamiento informan que Ollama no está disponible."""
         result = self.orchestrator.process_query("¿cómo optimizo el rendimiento del kernel?")
-        self.assertTrue(result.success)
+        self.assertFalse(result.success)
         self.assertEqual(result.route, RouteType.LLM_REASONING)
-        self.assertIn("El subsistema LLM (Ollama) no está activo", result.message)
+        self.assertIn("Ollama no está disponible", result.message)
+        self.assertFalse(result.audit_entry.execution_success)
+
+    def test_llm_success_is_reported_and_audited(self):
+        provider = FakeModelProvider(
+            ProviderStatus(True, True),
+            ProviderResponse(True, "respuesta local", "ollama"),
+        )
+        orchestrator = Orchestrator.create_default(
+            log_path=self.audit_file,
+            model_provider=provider,
+        )
+
+        result = orchestrator.process_query("explica este error")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.message, "respuesta local")
+        self.assertTrue(result.audit_entry.execution_success)
+        self.assertEqual(result.metadata["provider"], "ollama")
+
+    def test_model_text_cannot_execute_tool_or_shell(self):
+        content = '{"tool":"kwiaty.system.status"}\n$ rm -rf /'
+        provider = FakeModelProvider(
+            ProviderStatus(True, True),
+            ProviderResponse(True, content, "ollama"),
+        )
+        orchestrator = Orchestrator.create_default(
+            log_path=self.audit_file,
+            model_provider=provider,
+        )
+
+        result = orchestrator.process_query("responde")
+        entries = orchestrator.audit_logger.read_recent()
+
+        self.assertEqual(result.message, content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["action"], "llm_query")
+        self.assertIsNone(entries[0]["tool_name"])
+
+    def test_deterministic_query_survives_unavailable_model(self):
+        result = self.orchestrator.process_query("status")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.route, RouteType.DETERMINISTIC_TOOL)
+
+    def test_default_factory_handles_missing_model_configuration(self):
+        with patch.dict(os.environ, {}, clear=True):
+            orchestrator = Orchestrator.create_default(log_path=self.audit_file)
+
+        result = orchestrator.process_query("explica este error")
+
+        self.assertFalse(result.success)
+        self.assertIn("modelo", result.message.lower())
 
 
 if __name__ == "__main__":
